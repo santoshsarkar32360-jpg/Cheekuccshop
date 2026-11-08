@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ store_name }}</title>
+    <style>
+        body { background-color: #121212; color: #ffffff; font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+        h1 { text-align: center; color: #ff4d4d; text-transform: uppercase; }
+        .card-container { display: flex; flex-direction: column; gap: 15px; max-width: 500px; margin: 0 auto; }
+        .card-box { background: #1a1a1a; border: 1px solid #ff4d4d; border-radius: 10px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .card-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 18px; color: #ff4d4d; }
+        .card-number { font-size: 20px; letter-spacing: 2px; margin: 10px 0; font-family: monospace; }
+        .card-details { font-size: 14px; color: #aaa; display: flex; justify-content: space-between; margin-bottom: 15px; }
+        .buy-btn { background: #ff4d4d; color: white; border: none; padding: 10px; width: 100%; border-radius: 5px; font-weight: bold; cursor: pointer; text-transform: uppercase; }
+        .buy-btn:hover { background: #e03b3b; }
+    </style>
+</head>
+<body>
+
+    <h1>{{ store_name }}</h1>
+    <p style="text-align: center; color: #888;">// Make payment & submit UTR to unlock cards</p>
+
+    <div class="card-container">
+        {% for card in cards %}
+        <div class="card-box">
+            <div class="card-header">
+                <span>{{ card.type }}</span>
+                <span>₹{{ card.price }}</span>
+            </div>
+            <div class="card-number">{{ card.number }}</div>
+            <div class="card-details">
+                <span>LIMIT: ₹{{ card.limit }}</span>
+                <span>EXP: {{ card.exp }}</span>
+                <span>CVV: {{ card.cvv }}</span>
+            </div>
+            <div style="font-size: 13px; color: #ccc; margin-bottom: 10px;">{{ card.name }}</div>
+            <button class="buy-btn" onclick="openPaymentModal({{ card.id }}, {{ card.price }})">BUY • ₹{{ card.price }}</button>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Payment & UTR Modal Popup -->
+    <div id="payment-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:10000; justify-content:center; align-items:center;">
+        <div style="background:#1a1a1a; color:#fff; padding:20px; border-radius:10px; width:90%; max-width:400px; border:1px solid #ff4d4d; text-align:center;">
+            <h3>Complete Payment</h3>
+            <p>Scan QR or Pay ₹<span id="modal-price"></span></p>
+            
+            <!-- QR Code Image Container -->
+            <div style="background:#fff; padding:10px; display:inline-block; border-radius:8px; margin-bottom:15px;">
+                <img id="qr-code-img" src="" alt="UPI QR Code" style="width:160px; height:160px; display:block;">
+            </div>
+
+            <a id="upi-pay-btn" href="" class="buy-btn" style="text-decoration:none; display:block; margin-bottom:15px; text-align:center; line-height:normal;">Open UPI App Directly</a>
+            
+            <hr style="border-color:#333; margin:15px 0;">
+            
+            <h4>Submit UTR / Transaction ID</h4>
+            <input type="text" id="utr-input" placeholder="Enter 12-digit UTR Number" style="width:100%; padding:10px; background:#222; border:1px solid #444; color:#fff; border-radius:5px; margin-bottom:10px; box-sizing: border-box;">
+            <button onclick="submitUtr()" style="width:100%; padding:10px; background:#28a745; color:#fff; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">Submit UTR & Get Card</button>
+            
+            <div id="result-box" style="margin-top:15px; text-align:left; font-size:14px;"></div>
+            
+            <button onclick="closeModal()" style="margin-top:15px; background:none; border:none; color:#aaa; cursor:pointer; text-decoration: underline;">Cancel / Close</button>
+        </div>
+    </div>
+
+    <!-- Live Purchase Notification Box -->
+    <div id="live-notification" style="position: fixed; bottom: 20px; left: 20px; background: #1a1a1a; color: #fff; padding: 12px 18px; border-radius: 8px; border: 1px solid #ff4d4d; box-shadow: 0 4px 10px rgba(0,0,0,0.5); display: none; z-index: 9999; font-family: sans-serif; font-size: 14px;">
+        🔥 <span id="buyer-text"></span>
+    </div>
+
+    <script>
+        let selectedCardId = null;
+        const baseUpiUrl = "{{ upi_url }}";
+
+        function openPaymentModal(cardId, price) {
+            selectedCardId = cardId;
+            document.getElementById("modal-price").innerText = price;
+            
+            const finalUpiUrl = baseUpiUrl + "&am=" + price;
+            document.getElementById("upi-pay-btn").href = finalUpiUrl;
+            
+            // Generate QR Code dynamically using free QR API
+            const qrApiUrl = "https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=" + encodeURIComponent(finalUpiUrl);
+            document.getElementById("qr-code-img").src = qrApiUrl;
+
+            document.getElementById("payment-modal").style.display = "flex";
+            document.getElementById("result-box").innerHTML = "";
+            document.getElementById("utr-input").value = "";
+        }
+
+        function closeModal() {
+            document.getElementById("payment-modal").style.display = "none";
+        }
+
+        async function submitUtr() {
+            const utr = document.getElementById("utr-input").value.trim();
+            const resultBox = document.getElementById("result-box");
+
+            if (!utr || utr.length < 8) {
+                alert("Please enter a valid UTR number!");
+                return;
+            }
+
+            resultBox.innerHTML = "Verifying payment, please wait...";
+
+            try {
+                const response = await fetch('/verify_utr', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ utr: utr, card_id: selectedCardId })
+                });
+
+                const data = await response.json();
+
+                if (data.status === "success") {
+                    resultBox.innerHTML = `
+                        <div style="background:#222; padding:10px; border-radius:5px; border:1px solid #28a745;">
+                            <p style="color:#28a745; font-weight:bold; margin-top:0;">✅ Payment Verified!</p>
+                            <p><b>Card:</b> ${data.card.number}</p>
+                            <p><b>Exp:</b> ${data.card.exp}</p>
+                            <p><b>CVV:</b> ${data.card.cvv}</p>
+                            <p style="margin-bottom:0;"><b>Holder:</b> ${data.card.name}</p>
+                        </div>
+                    `;
+                } else {
+                    resultBox.innerHTML = `<p style="color:red;">❌ Verification failed. Check UTR.</p>`;
+                }
+            } catch (err) {
+                resultBox.innerHTML = `<p style="color:red;">An error occurred. Try again.</p>`;
+            }
+        }
+
+        // Live Purchase Notifications (Every 12 seconds)
+        const buyers = ["Aman", "Rahul", "Vikas", "Deepak", "Sahil", "Rohit", "Amit", "Karan", "Suraj", "Ankit"];
+        const cardTypes = ["VISA", "MasterCard", "RuPay"];
+
+        function showLivePurchase() {
+            const randomBuyer = buyers[Math.floor(Math.random() * buyers.length)];
+            const randomCard = cardTypes[Math.floor(Math.random() * cardTypes.length)];
+            
+            const notifBox = document.getElementById("live-notification");
+            const buyerText = document.getElementById("buyer-text");
+            
+            buyerText.innerHTML = `<b>${randomBuyer}</b> just purchased a ${randomCard} card!`;
+            notifBox.style.display = "block";
+            
+            setTimeout(() => {
+                notifBox.style.display = "none";
+            }, 4000);
+        }
+
+        setInterval(showLivePurchase, 12000);
+    </script>
+</body>
+  </html>
+  
